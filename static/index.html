@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head><title>YT Sync Viewer</title></head>
+<body>
+  <h2>You're a Viewer</h2>
+  <div id="player"></div>
+
+  <script>
+    let tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.body.appendChild(tag);
+
+    let player, ws;
+    let currentVideoId = "dQw4w9WgXcQ";
+
+    function connectWS() {
+      const protocol = location.protocol === "https:" ? "wss://" : "ws://";
+      ws = new WebSocket(protocol + location.host + "/ws");
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "sync") {
+          const s = data.state;
+          if (player && player.loadVideoById) {
+            player.loadVideoById(s.videoId);
+            player.seekTo(s.currentTime + (Date.now()/1000 - s.timestamp));
+            if (!s.playing) player.pauseVideo();
+          }
+        }
+      };
+    }
+
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('player', {
+        height: '390', width: '640', videoId: currentVideoId,
+        events: { onReady: connectWS }
+      });
+    }
+  </script>
+</body>
+</html>
