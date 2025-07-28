@@ -4,7 +4,7 @@
 <body>
   <h2>You're the Host</h2>
 
-  <input id="ytLink" type="text" placeholder="Paste YouTube link" style="width:60%">
+  <input id="ytLink" type="text" placeholder="Paste YouTube video or playlist URL" style="width:60%">
   <button onclick="setVideo()">Set Video</button>
   <br><br>
 
@@ -19,6 +19,7 @@
 
     let player, ws;
     let currentVideoId = "dQw4w9WgXcQ";
+    let playlistId = null;
 
     function connectWS() {
       const protocol = location.protocol === "https:" ? "wss://" : "ws://";
@@ -30,8 +31,13 @@
         if (data.type === "sync") {
           const s = data.state;
           currentVideoId = s.videoId;
+          playlistId = s.playlistId || null;
           if (player && player.loadVideoById) {
-            player.loadVideoById(s.videoId);
+            if (playlistId) {
+              player.loadPlaylist({ list: playlistId });
+            } else {
+              player.loadVideoById(currentVideoId);
+            }
             player.seekTo(s.currentTime + (Date.now()/1000 - s.timestamp));
             if (!s.playing) player.pauseVideo();
           }
@@ -42,6 +48,7 @@
     function sendState() {
       const state = {
         videoId: currentVideoId,
+        playlistId: playlistId,
         playing: player.getPlayerState() === 1,
         currentTime: player.getCurrentTime(),
         timestamp: Date.now() / 1000
@@ -51,14 +58,22 @@
 
     function setVideo() {
       const url = document.getElementById("ytLink").value;
-      const id = extractVideoId(url);
-      if (id) {
-        currentVideoId = id;
-        player.loadVideoById(id);
-        sendState();
-      } else {
+      const videoId = extractVideoId(url);
+      playlistId = extractPlaylistId(url);
+
+      if (!videoId && !playlistId) {
         alert("Invalid YouTube URL");
+        return;
       }
+
+      currentVideoId = videoId || "dQw4w9WgXcQ";
+      if (playlistId) {
+        player.loadPlaylist({ list: playlistId });
+      } else {
+        player.loadVideoById(currentVideoId);
+      }
+
+      sendState();
     }
 
     function togglePlay() {
@@ -73,6 +88,11 @@
 
     function extractVideoId(url) {
       const match = url.match(/(?:\?v=|\/embed\/|\.be\/)([a-zA-Z0-9_-]{11})/);
+      return match ? match[1] : null;
+    }
+
+    function extractPlaylistId(url) {
+      const match = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
       return match ? match[1] : null;
     }
 
