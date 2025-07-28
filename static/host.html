@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head><title>YT Sync Host</title></head>
+<body>
+  <h2>You're the Host</h2>
+
+  <input id="ytLink" type="text" placeholder="Paste YouTube link" style="width:60%">
+  <button onclick="setVideo()">Set Video</button>
+  <br><br>
+
+  <div id="player"></div>
+  <br>
+  <button onclick="togglePlay()">Play / Pause</button>
+
+  <script>
+    let tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.body.appendChild(tag);
+
+    let player, ws;
+    let currentVideoId = "dQw4w9WgXcQ";
+
+    function connectWS() {
+      const protocol = location.protocol === "https:" ? "wss://" : "ws://";
+      ws = new WebSocket(protocol + location.host + "/ws");
+
+      ws.onopen = () => sendState();
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "sync") {
+          const s = data.state;
+          currentVideoId = s.videoId;
+          if (player && player.loadVideoById) {
+            player.loadVideoById(s.videoId);
+            player.seekTo(s.currentTime + (Date.now()/1000 - s.timestamp));
+            if (!s.playing) player.pauseVideo();
+          }
+        }
+      };
+    }
+
+    function sendState() {
+      const state = {
+        videoId: currentVideoId,
+        playing: player.getPlayerState() === 1,
+        currentTime: player.getCurrentTime(),
+        timestamp: Date.now() / 1000
+      };
+      ws.send(JSON.stringify({ type: "update", state }));
+    }
+
+    function setVideo() {
+      const url = document.getElementById("ytLink").value;
+      const id = extractVideoId(url);
+      if (id) {
+        currentVideoId = id;
+        player.loadVideoById(id);
+        sendState();
+      } else {
+        alert("Invalid YouTube URL");
+      }
+    }
+
+    function togglePlay() {
+      const state = player.getPlayerState();
+      if (state === 1) {
+        player.pauseVideo();
+      } else {
+        player.playVideo();
+      }
+      sendState();
+    }
+
+    function extractVideoId(url) {
+      const match = url.match(/(?:\?v=|\/embed\/|\.be\/)([a-zA-Z0-9_-]{11})/);
+      return match ? match[1] : null;
+    }
+
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('player', {
+        height: '390', width: '640', videoId: currentVideoId,
+        events: {
+          onReady: connectWS,
+          onStateChange: sendState
+        }
+      });
+    }
+  </script>
+</body>
+</html>
