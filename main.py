@@ -1,51 +1,49 @@
-import asyncio
+from aiohttp import web, WSMsgType
 import json
-import os
-from aiohttp import web
-
-PORT = int(os.environ.get("PORT", 10000))
-
-connected = set()
-current_state = {
-    "videoId": "dQw4w9WgXcQ",
-    "playing": False,
-    "currentTime": 0,
-    "timestamp": 0
-}
+import time
 
 routes = web.RouteTableDef()
+clients = set()
+video_state = {
+    "videoId": "dQw4w9WgXcQ",  # default video
+    "playing": False,
+    "currentTime": 0,
+    "timestamp": time.time()
+}
 
 @routes.get("/")
 async def index(request):
     return web.FileResponse('./static/index.html')
 
-@routes.get('/ws')
+@routes.get("/host")
+async def host_page(request):
+    return web.FileResponse('./static/host.html')
+
+@routes.get("/ws")
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
-    connected.add(ws)
-    await ws.send_json({"type": "sync", "state": current_state})
+    clients.add(ws)
+
+    # Send current state
+    await ws.send_json({"type": "sync", "state": video_state})
 
     async for msg in ws:
-        if msg.type == web.WSMsgType.TEXT:
+        if msg.type == WSMsgType.TEXT:
             data = json.loads(msg.data)
-            if data["type"] == "update":
-                global current_state
-                current_state = data["state"]
-                await broadcast()
-        elif msg.type == web.WSMsgType.ERROR:
-            print("WebSocket error:", ws.exception())
+            if data.get("type") == "update":
+                video_state.update(data["state"])
+                for client in clients:
+                    if client.closed: continue
+                    await client.send_json({"type": "sync", "state": video_state})
+        elif msg.type == WSMsgType.ERROR:
+            print('WebSocket connection closed with exception %s' % ws.exception())
 
-    connected.remove(ws)
+    clients.discard(ws)
     return ws
-
-async def broadcast():
-    for ws in connected:
-        await ws.send_json({"type": "sync", "state": current_state})
 
 app = web.Application()
 app.add_routes(routes)
-app.router.add_static('/', path='./static', name='static')
 
-if __name__ == '__main__':
-    web.run_app(app, port=PORT)
+if __name__ == "__main__":
+    web.run_app(app, port=8080)
