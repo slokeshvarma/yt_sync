@@ -1,49 +1,42 @@
-from aiohttp import web, WSMsgType
-import json
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import time
 
-routes = web.RouteTableDef()
-clients = set()
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 video_state = {
-    "videoId": "dQw4w9WgXcQ",  # default video
+    "videoId": "dQw4w9WgXcQ",
+    "playlistId": None,
     "playing": False,
     "currentTime": 0,
     "timestamp": time.time()
 }
 
-@routes.get("/")
-async def index(request):
-    return web.FileResponse('./static/index.html')
+clients = []
 
-@routes.get("/host")
-async def host_page(request):
-    return web.FileResponse('./static/host.html')
+@app.get("/")
+async def get_root():
+    return FileResponse("static/index.html")
 
-@routes.get("/ws")
-async def websocket_handler(request):
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-    clients.add(ws)
+@app.get("/host")
+async def get_host():
+    return FileResponse("static/host.html")
 
-    # Send current state
-    await ws.send_json({"type": "sync", "state": video_state})
-
-    async for msg in ws:
-        if msg.type == WSMsgType.TEXT:
-            data = json.loads(msg.data)
-            if data.get("type") == "update":
-                video_state.update(data["state"])
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    clients.append(websocket)
+    try:
+        await websocket.send_json({"type": "sync", "state": video_state})
+        while True:
+            data = await websocket.receive_json()
+            if data["type"] == "update":
+                global video_state
+                video_state = data["state"]
                 for client in clients:
-                    if client.closed: continue
-                    await client.send_json({"type": "sync", "state": video_state})
-        elif msg.type == WSMsgType.ERROR:
-            print('WebSocket connection closed with exception %s' % ws.exception())
-
-    clients.discard(ws)
-    return ws
-
-app = web.Application()
-app.add_routes(routes)
-
-if __name__ == "__main__":
-    web.run_app(app, port=8080)
+                    if client != websocket:
+                        await client.send_json({"type": "sync", "state": video_state})
+    except WebSocketDisconnect:
+        clients.remove(websocket)
