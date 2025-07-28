@@ -1,57 +1,100 @@
 <!DOCTYPE html>
-<html>
-<head><title>YT Viewer</title></head>
-<body>
-  <h2>You are a Viewer</h2>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>YouTube Viewer</title>
+</head>
+<body style="margin: 0; padding: 0; overflow: hidden;">
   <div id="player"></div>
 
   <script>
-    let tag = document.createElement('script');
-    tag.src = "https://www.youtube.com/iframe_api";
-    document.body.appendChild(tag);
+    let player;
+    let currentVideoId = "";
+    let currentPlaylistId = "";
+    let isPlaying = false;
 
-    let player, ws;
-    let currentVideoId = "dQw4w9WgXcQ";
-    let playlistId = null;
+    const ws = new WebSocket(
+      location.protocol === "https:" ?
+      "wss://" + location.host + "/ws" :
+      "ws://" + location.hostname + ":8000/ws"
+    );
 
-    function connectWS() {
-      const protocol = location.protocol === "https:" ? "wss://" : "ws://";
-      ws = new WebSocket(protocol + location.host + "/ws");
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "sync") {
+        const state = msg.state;
+        const { videoId, playlistId, startTime, isPlaying: playStatus } = state;
 
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === "sync") {
-          const s = data.state;
-          currentVideoId = s.videoId;
-          playlistId = s.playlistId || null;
+        const now = Date.now();
+        const offset = Math.floor((now - startTime) / 1000);
 
-          if (player) {
-            if (playlistId) {
-              player.loadPlaylist({ list: playlistId });
-            } else {
-              player.loadVideoById(currentVideoId);
-            }
-            player.seekTo(s.currentTime + (Date.now()/1000 - s.timestamp));
-            if (!s.playing) player.pauseVideo();
+        if (!player) return;
+
+        // Check if video or playlist changed
+        const videoChanged = videoId !== currentVideoId || playlistId !== currentPlaylistId;
+
+        if (videoChanged) {
+          currentVideoId = videoId;
+          currentPlaylistId = playlistId;
+
+          if (playlistId) {
+            player.loadPlaylist({
+              listType: 'playlist',
+              list: playlistId,
+              index: 0,
+              startSeconds: offset
+            });
+          } else {
+            player.loadVideoById({
+              videoId: videoId,
+              startSeconds: offset
+            });
+          }
+        } else {
+          // Just sync time or play/pause
+          const playerState = player.getPlayerState();
+          const playerTime = Math.floor(player.getCurrentTime());
+          const diff = Math.abs(playerTime - offset);
+
+          if (diff > 3) {
+            player.seekTo(offset, true);
+          }
+
+          if (playStatus && playerState !== YT.PlayerState.PLAYING) {
+            player.playVideo();
+          } else if (!playStatus && playerState === YT.PlayerState.PLAYING) {
+            player.pauseVideo();
           }
         }
-      };
-    }
+      }
+    };
 
     function onYouTubeIframeAPIReady() {
-      player = new YT.Player('player', {
-        height: '390', width: '640',
-        videoId: currentVideoId,
+      player = new YT.Player("player", {
+        width: "100%",
+        height: "100%",
         playerVars: {
+          autoplay: 1,
           controls: 0,
           disablekb: 1,
           modestbranding: 1,
+          rel: 0,
+          fs: 0
         },
         events: {
-          onReady: connectWS
+          onReady: (event) => {
+            // Try autoplay workaround
+            event.target.mute();
+            event.target.playVideo();
+          }
         }
       });
     }
+
+    // Load YouTube Iframe API
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
   </script>
 </body>
 </html>
