@@ -26,6 +26,7 @@ async def get_host():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    global video_state
     await websocket.accept()
     clients.append(websocket)
     try:
@@ -33,7 +34,6 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             if data["type"] == "update":
-                global video_state
                 video_state = data["state"]
                 for client in clients:
                     if client != websocket:
